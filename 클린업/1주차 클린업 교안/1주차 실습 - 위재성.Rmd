@@ -1,0 +1,104 @@
+---
+title: 1주차 클린업 실습
+author: 위재성
+---
+
+```{r message=FALSE, warning=FALSE}
+library(data.table)
+library(tidyverse)
+data = fread('1주차실습.csv') %>% mutate_all(as.factor)
+str(data)
+```
+### 1. 원하는 변수 2개 골라서 2차원 분할표 만들어보기
+
+```{r}
+attach(data)
+table_2d = table(sex, h1n1_vaccine)
+table_2d # 일반 분할표
+addmargins(table_2d) # 주변합 표시
+mosaicplot(table_2d, color = c('lightblue', 'lightgreen')) # 시각화
+prop.table(table_2d) # 비율 분할표
+```
+
+### 2. 원하는 변수 3개 골라서 3차원 분할표 만들어보기
+```{r}
+ftable_3d = ftable(sex, income_poverty, h1n1_vaccine)
+ftable_3d # 일반 분할표
+addmargins(ftable_3d) # 주변합 표시
+mosaicplot(ftable_3d, color = c('lightblue', 'lightgreen')) # 시각화
+prop.table(ftable_3d) # 비율 분할표
+
+table_3d = table(sex,income_poverty,h1n1_vaccine)
+table_3d # 일반 분할표
+addmargins(table_3d) # 주변합 표시
+mosaicplot(table_3d, color = c('lightblue', 'lightgreen')) # 시각화
+prop.table(table_3d) # 비율 분할표
+
+```
+### 3. 독립성 검정 시행하기
+```{r}
+# 명목형 자료
+library(DescTools)
+library(vcd)
+table_norm = table(sex, factor(h1n1_vaccine, levels = c('Y','N')))
+table_norm
+chisq.test(table_norm) # 카이 스퀘어 독립성 검정
+GTest(table_norm) # 가능도비 검정
+assocstats(table_norm) # 둘 다!
+```
+  
+두 검정 방법 모두 p-value가 굉장히 낮으므로 유의한 결과 획득.  
+즉, `성별`과 `독감 백신 접종 여부`는 독립 X
+
+```{r}
+# 순서형 자료
+library(vcdExtra)
+table_ord = table(h1n1_knowledge, income_poverty)
+detach(data)
+table_ord
+CMHtest(table_ord, types = 'cor') # M-H test from vcdExtra
+MHChisqTest(table_ord) # M-H test from DescTools
+chisq.test(table_ord) # 카이 스퀘어 독립성 검정
+
+```
+  
+M-H 테스트 결과 p-value가 굉장히 낮으므로 유의한 결과 획득.  
+즉, `소득 수준`과 `독감에 대한 지식수준`은 독립 X  
+  
+### 4. sex와 h1h1_vaccine 변수로 2차원 분할표(2X2) 만들고 비율의 차이, 상대위험도, 오즈비 계산하기
+```{r}
+# 직접 구하기
+table_norm
+addmargins(table_norm)
+n = table_norm %>% apply(1,sum)
+n # 행별 합계 확인
+
+norm_con = sweep(table_norm,1,n,'/') # 결합확률 구함
+norm_con
+```
+
+
+```{r}
+# 비율의 차이
+norm_con[1,1] - norm_con[2,1]
+```
+여성이 백신을 맞았을 확률이 남성보다 약 0.0172정도 더 낮다.
+
+```{r}
+# 상대 위험도
+norm_con[1,1] / norm_con[2,1]
+```
+여성이 백신을 맞았을 확률이 남성에 비해 약 0.92배 정도이다. 
+
+```{r}
+# 오즈비 (백신 맞은 확률을 파이로!)
+(norm_con[1,1] / norm_con[1,2]) / (norm_con[2,1] / norm_con[2,2])
+```
+여성이 백신을 맞았을 오즈가 남성에 비해 약 0.9배 정도이다.
+```{r}
+# 라이브러리 사용
+library(epiR)
+epi.2by2(table_norm)
+```
+직접 구한 것과 결과 동일  
+
