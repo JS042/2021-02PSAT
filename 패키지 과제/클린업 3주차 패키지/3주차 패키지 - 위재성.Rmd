@@ -1,0 +1,400 @@
+---
+title: 3주차 패키지
+author: 위재성
+---
+# Chapter 1 모델링을 위한 전처리  
+## 문제0. (기본 세팅) 패키지를 불러오고 디렉토리를 설정하세요요.
+```{r message=FALSE, warning=FALSE}
+setwd("C:/Users/위재성/Desktop/Psat/2학기/Package/3주차 패키지")
+
+need_packages <- c("tidyverse", "data.table", 'caret', 'magrittr')
+options(warn = -1)
+for(i in 1:length(need_packages)){
+  if(require(need_packages[i], character.only = T) == 0){
+    install.packages(need_packages[i])
+    require(need_packages[i], character.only = T)
+  }
+  else{require(need_packages[i], character.only = T)}
+}
+rm(list = ls())
+```
+  
+## 문제1. train.csv와 test.csv 데이터의 기본 구조를 파악하고 변수 와 데이터 개수, 결측치 여부를 확인하세요.
+```{r}
+# 데이터 불러오기
+data = fread('train.csv', data.table = F)
+test = fread('test.csv', data.table = F)
+
+# train 데이터 파악
+data %>% head(3)
+data %>% glimpse()
+data %>% summary()
+data %>% is.na %>% colSums()
+
+# test 데이터 파악
+test %>% head(3)
+test %>% glimpse()
+test %>% summary()
+test %>% is.na %>% colSums()
+```
+  
+## 문제2. character 형태로 되어있는 변수들을 factor 형태로 바꾸세요.
+```{r}
+data %<>% mutate_if(is.character, factor)
+data %>% glimpse()
+```
+## 문제3. 변수 의미 txt파일을 참고하여 남은 범주형 변수들도 factor 형태로 바꾼 뒤 str을 확인해주세요.
+```{r}
+# 소유 여부를 나타내는 변수들과 credit 변수를 범주화
+cols = c('FLAG_MOBIL','work_phone','phone','email','credit')
+data[cols] %<>% apply(2,as.factor)
+data %<>% mutate_if(is.character, factor)
+data %>% str()
+```
+  
+## 문제4. Factor형 형태의 변수들의 각 level이 몇 개인지 개수를 확인하고 다음과 같이 그래프를 그려주세요.
+```{r}
+# 각 변수들의 level 개수 확인
+n_level = data %>% select(where(is.factor)) %>% sapply(n_distinct)
+
+data.frame(n_level,var = names(n_level), row.names=NULL) %>% # 데이터 프레임화
+  
+  # ggplot 시작
+  ggplot(aes(x = n_level, y = reorder(var, n_level), fill = n_level)) +
+  geom_col() + 
+  geom_text(aes(label = paste(n_level, '개', sep = '')), hjust= -0.3) +
+  
+  # 테마 수정
+  theme_classic() +
+  labs(x = 'level 개수', y = '범주형 변수') +
+  scale_fill_gradient(low = '#C04848', high = '#480048') +
+  theme(legend.position = 'None')
+```
+## 문제4-1. 그래프를 통해 필요 없는 변수를 확인하고 삭제하세요.
+```{r}
+# FLAG_MOBIL의 경우 level의 개수가 1개이므로 삭제
+data %<>% select(-FLAG_MOBIL)
+```
+
+## 문제5. days_birth는 데이터 생성일로부터 며칠 전 태어났는지를 역으로 세는 변수입니다. (-1은 데이터 수집일 하루 전에 태어났음을 의미) 이 변수를 사용하여 나이(AGE) 파생변수를 생성하고 기존 변수는 삭제하세요. (반올림 사용 가능)
+```{r}
+data %<>% 
+  mutate(age = round(-DAYS_BIRTH / 365)) %>% # 365일로 나눠준뒤 반올림
+  select(-DAYS_BIRTH) # 기존 변수 삭제
+data$age
+```
+
+## 문제6. days_employed는 데이터 생성일로부터 며칠 전 업무를 시작했는지를 나타내는 변 수입니다. (-1은 데이터 수집일 하루 전부터 일을 시작했음을 의미, 다만 양수 값은 고용되지 않은 상태를 뜻함) 이 변수를 사용하여 업무 년차(YEARS_EMPLOYED) 파생변수를 생성하고 기존 변수는 삭제하세요.
+```{r}
+data %<>% 
+  mutate(years_employed = 
+           ifelse(DAYS_EMPLOYED > 0, 0, floor(-DAYS_EMPLOYED / 365))) %>% # 365일로 나눠준뒤 버림
+  select(-DAYS_EMPLOYED) # 기존 변수 삭제
+    
+data$years_employed
+           
+```
+## 문제7. Test 데이터셋도 같은 방식으로 전처리 해주세요.
+```{r}
+test = fread('test.csv', data.table = F)
+
+cols = c('FLAG_MOBIL','work_phone','phone','email')
+test[cols] %<>% apply(2,as.factor)
+
+test %<>% 
+  mutate_if(is.character, factor) %>% 
+  select(-FLAG_MOBIL) %>% 
+  
+  mutate(age = round(-DAYS_BIRTH / 365)) %>% 
+  select(-DAYS_BIRTH) %>% 
+  
+  mutate(years_employed = 
+           ifelse(DAYS_EMPLOYED > 0, 0, floor(-DAYS_EMPLOYED / 365))) %>% 
+  select(-DAYS_EMPLOYED)
+  
+
+```
+
+## 문제8. train 데이터를 학습용 데이터와 검증용 데이터로 분리하세요. 
+(p=0.8, seed:123)
+```{r}
+set.seed(123)
+train_idx = createDataPartition(p=0.8,list = F, y = data$credit)
+train = data[train_idx,]
+valid = data[-train_idx,]
+```
+
+# Chapter 2 분류모델: 로지스틱 회귀  
+```{r message=FALSE, warning=FALSE}
+library(glmnet)
+library(Epi)
+library(MLmetrics)
+```
+  
+## [로지스틱 회귀]  
+## 문제1-1. 전체 변수들을 가지고 로지스틱 회귀 모델을 만들고 결과를 보여주세요.
+```{r}
+fit = glm(credit ~ ., data = train, family = binomial)
+summary(fit)
+```
+## 문제1-2. 변수선택법을 적용해보세요. 결과를 보여주고 문제1의 모델과 비교해주세요.
+```{r}
+backward = step(fit,direction = 'backward', trace = 0)
+#forward = step(glm(credit ~ 1, data = train, family = binomial),
+#               scope = formula(fit), direction = 'forward', trace = 0)
+#stepwise = step(fit,direction = 'both', trace = 0) %>%
+
+# 확인 결과 세 개의 변수선택법 모두 동일한 결과 도출
+# default값인 backward 선택
+backward %>% summary
+backward$anova
+```  
+기존 모델에서 변수 선택법 적용 후 `gender`,`car`,`child_num`,`work_phone`,`phone`,`occyp_type`,`years_employed`, `family_size`, 총 8개 변수 삭제
+  
+## 문제1-3. 모델의 회귀계수의 신뢰구간을 구해보세요.
+```{r}
+backward %>% confint()
+```
+## 문제1-4. 오즈비와 회귀계수의 관계를 이용하여 회귀계수를 해석해보세요.
+```{r}
+backward$coefficients %>% exp
+```  
+
+`age` 변수를 예시로 들면 나이가 한 단위 증가하면 credit=1일 오즈가 1.007배 증가한다.   
+`email`의 경우에는 이메일이 없을 때(email=0)에 비해 이메일이 있을 때(email=1) credit=1일 오즈가 1.19배 증가한다.
+  
+## 문제1-5. 0.5를 임계값으로 모델의 예측값(train error)을 구하고 confusion matrix를 만들어보세요.
+```{r}
+pred = ifelse(predict(backward, type = 'response')>=0.5, 1, 0)
+table(train$credit, pred)
+```
+  
+## 문제1-6. Validation data를 통해 확률값이 나오도록 예측값을 구하고 이를 사용하여 ROC curve를 그리고 해석해보세요. 
+(Epi 패키지 사용)
+```{r}
+pred = predict(backward, valid, type = 'response')
+roc = ROC(test = pred, stat = valid$credit, plot = 'ROC')
+```
+  
+cut-off point가 0.590일 때 `sensitivity`와 `specificity`의 합이 가장 높다.  
+즉, 0.590이 최적의 임계값이다.
+  
+## 문제1-7. 위의 ROC curve에서 구한 최적의 임계값을 기준으로 Accuracy와 F1-score를 구하고 값을 저장해두세요.
+```{r}
+# 정확성을위해 반올림값이 아닌 최적값 그대로 사용
+optimal_idx = which.max(roc$res$sens + roc$res$spec)
+optimal_cut = roc$res$pred[optimal_idx]
+
+pred = ifelse(predict(backward, valid, type = 'response') >= optimal_cut, 1, 0)
+
+acc_logistic = Accuracy(pred,valid$credit)
+f1_logistic = F1_Score(valid$credit, pred, positive = '1')
+```
+
+## 문제1-8. 같은 조건으로 전체 데이터를 다시 로지스틱 회귀 모형을 적합시키고 test 데이터셋에 대해 예측하세요.
+```{r}
+fit = glm(backward %>% formula, data = data, family = binomial)
+pred_logit = ifelse(predict(fit,test) >= optimal_cut, 1, 0)
+```
+  
+## [Lasso 로지스틱 회귀]  
+## 문제2-1. 범주형 변수들이 더미화된 디자인 행렬을 만드세요. 
+(model.matrix() 사용)
+```{r}
+train_x = model.matrix(credit~.,data = train)[,-1]
+train_y = train$credit
+```
+  
+## 문제2-2. CV로 최적의 람다를 찾고 찾은 최적의 람다로 Lasso 로지스틱 회귀 모델을 적합하세요. (seed:123)
+```{r}
+set.seed(123)
+cv_lasso = cv.glmnet(train_x, train_y, family = 'binomial', alpha = 1)
+cv_lasso$lambda.min
+
+lasso = glmnet(train_x, train_y, alpha = 1, family = 'binomial',
+               lambda = cv_lasso$lambda.min)
+```
+
+## 문제2-3. 모델의 회귀계수를 확인하고 회귀계수가 없는 변수들이 있는 이유를 설명해주세요.
+```{r}
+lasso %>% coef
+```
+  
+`lasso regression`에서 몇몇 회귀계수가 0이 되는 이유는 L1 제약조건 때문인데  
+이는 페널티 항에 절대값을 취해주어 `ridge`와는 다르게 제약조건의 영역에 `sharp corner`가 생김  
+이 때 RSS의 수준이 `sharp corner`에 닿는다면 그 축의 회귀계수는 0이 됨  
+
+## 문제2-4. Validation 데이터를 통해 확률값이 나오도록 예측값을 구하고 이를 사용하여 ROC curve를 그리고 해석해보세요.
+```{r}
+# 더미 변수 생성
+valid_x = model.matrix(credit ~ ., data = valid)[,-1]
+valid_y = valid$credit
+
+pred = predict(lasso, valid_x, type = 'response')
+
+roc = ROC(test = pred, stat = valid_y, plot = 'ROC')
+```
+  
+cut-off point가 0.560일 때 `sensitivity`와 `specificity`의 합이 가장 높다.  
+즉, 0.560이 최적의 임계값이다.  
+  
+## 문제2-5. 위의 ROC curve에서 구한 최적의 임계값을 기준으로 Accuracy와 F1-score를 구하고 값을 저장해두세요.
+```{r}
+optimal_idx = which.max(roc$res$sens + roc$res$spec)
+optimal_cut = roc$res$pred[optimal_idx]
+
+pred = ifelse(predict(lasso, valid_x, type = 'response') >= optimal_cut, 1, 0)
+
+acc_lasso = Accuracy(pred,valid_y)
+f1_lasso = F1_Score(valid_y,pred, positive = '1')
+```
+  
+## 문제2-6. 같은 조건으로 전체 데이터를 다시 Lasso 로지스틱 회귀 모형을 적합시키고 test 데이터셋에 대해 예측하세요.
+```{r}
+data_x = model.matrix(credit ~ ., data=data)[,-1]
+test_x = model.matrix( ~ ., data=test)[,-1]
+
+fit = glmnet(data_x, data$credit, alpha = 1, family = 'binomial', lambda = cv_lasso$lambda.min)
+pred_lasso = ifelse(predict(fit, test_x, type = 'response') >= optimal_cut, 1, 0)
+
+```
+  
+## [Ridge 로지스틱 회귀]  
+## 문제3-1. Lasso 로지스틱 회귀에 사용한 동일한 데이터를 사용하여 CV로 최적의 람다를 찾고 찾은 최적의 람다로 Ridge 로지스틱 회귀 모델을 적합하고 모델의 회귀계수들을 확인하세요. (seed:123)
+```{r}
+set.seed(123)
+cv_ridge = cv.glmnet(train_x, train_y, family = 'binomial', alpha = 0)
+cv_ridge$lambda.min
+
+ridge = glmnet(train_x, train_y, alpha = 0, family = 'binomial', lambda = cv_ridge$lambda.min)
+ridge %>% coef
+```
+  
+## 문제3-2. Validation 데이터를 통해 확률값이 나오도록 예측값을 구하고 이를 사용하여 ROC curve를 그리고 해석해보세요.
+```{r}
+pred = predict(ridge, valid_x, type = 'response')
+
+roc = ROC(test = pred, stat = valid_y, plot = 'ROC')
+```
+  
+cut-off point가 0.573일 때 `sensitivity`와 `specificity`의 합이 가장 높다.  
+즉, 0.573이 최적의 임계값이다. 
+  
+## 문제3-3. 위의 ROC curve에서 구한 최적의 임계값을 기준으로 Accuracy와 F1-score를 구하고 값을 저장해두세요.
+```{r}
+optimal_idx = which.max(roc$res$sens + roc$res$spec)
+optimal_cut = roc$res$pred[optimal_idx]
+
+pred = ifelse(predict(ridge, valid_x, type = 'response') >= optimal_cut, 1, 0)
+
+acc_ridge = Accuracy(pred,valid_y)
+f1_ridge = F1_Score(valid_y,pred, positive = '1')
+```
+  
+## 문제3-4. 같은 조건으로 전체 데이터를 다시 Ridge로지스틱 회귀 모형을 적합시키고 test 데이터셋에 대해 예측하세요.
+```{r}
+fit = glmnet(data_x, data$credit, alpha = 0, family = 'binomial', lambda = cv_ridge$lambda.min)
+pred_ridge = ifelse(predict(fit, test_x, type = 'response') >= optimal_cut, 1, 0)
+```
+  
+## 문제3-5. 각각 세 모델의 Accuracy값과 F1score 값을 다음과 같이 시각화하고 결과를 해석해보세요.
+```{r}
+# 데이터 프레임 생성
+result = data.frame(acc_ridge,f1_ridge,
+                    acc_lasso,f1_lasso,
+                    acc_logistic,f1_logistic)
+
+result %<>% 
+  # 어떤 모델의 어떤 성능지표인지를 나타내는 type열과 그 값인 value열로 나눠줌
+  gather(type,value) %>% 
+  # type열을 다시 모델과 평가지표 2개 열로 나눠줌
+  separate(type,into=c('eval','model'),sep='_')
+
+result$eval %<>% factor(labels = c('accuracy','f1score'))
+
+result %>% 
+  ggplot(aes(x=model, y=value, fill=model)) +
+  geom_col(alpha=0.9) +
+  geom_text(aes(label = round(value,2), color = model), vjust = -0.3) +
+
+  # 테마 수정
+  theme_light() +
+  scale_fill_brewer(palette = 'Pastel1') +
+  scale_color_brewer(palette = 'Pastel1') +
+  labs(x='', y='') +
+  theme(panel.grid = element_blank(),
+        strip.text = element_text(color = 'black')) +
+  facet_wrap(eval~.)
+```
+  
+일반적인 로지스틱 회귀보다는 페널티 항이 존재하는 `ridge`,`lasso` 로지스틱 회귀가 더 높은 성능을 보여줌.  
+그 중에서도 `lasso`가 약간 더 높은 성능을 보임.  
+  
+# Chapter 3 클러스터링  
+## 문제1. 환경 내 저장된 데이터를 전부 삭제하고 cluster 패키지의 xclara 데이터를 불러오세요
+```{r message=FALSE, warning=FALSE}
+rm(list=ls())
+library(corrplot)
+library(cluster)
+library(factoextra)
+library(gridExtra)
+
+data = xclara
+```
+
+## 문제2. 데이터의 상관관계를 확인하고 스케일링을 해주세요. 또한 클러스터링 전에 데이터를 스케일링 해주어야 하는 이유를 적어주세요.
+```{r}
+data %>% cor %>% corrplot(method = 'color', diag = F, tl.pos = 'd',
+                          addCoef.col = 'black')
+data %<>% scale
+```
+  
+kmeans 클러스터링에서는 데이터 간 거리를 이용해 클러스터링을 진행하는데  
+이 때 변수 간의 단위가 다르면 데이터 간 거리가 제대로 측정되지 못함  
+따라서 거리 계산을 위해 데이터의 스케일링이 필요  
+
+## 문제3. Fviz_nbclust 함수로 다음과 같이 시각화한 뒤 적절한 k 값을 선택하고 그 이유를 설명해주세요. 
+(seed:123)
+```{r}
+set.seed(123)
+grid.arrange(fviz_nbclust(data, kmeans, method = 'w'), 
+             fviz_nbclust(data, kmeans, method = 's'),
+             ncol=2)
+```  
+  
+`k=3`에서 실루앗 값이 가장 높으며 엘보 포인트  
+그렇기에 `k=3`이 가장 적절  
+  
+## 문제4. K-means clustering을 진행하고 다음과 같이 시각화하세요. 
+(nstart = 1, iter.max = 100)
+```{r}
+set.seed(9999)
+cls = kmeans(data, centers = 3, nstart = 1, iter.max = 100)
+fviz_cluster(cls, data=data, geom = 'point',
+             ggtheme = theme_minimal())
+```  
+  
+## 문제5. 사용된 변수 V1과 V2에 대해 다음과 같이 클러스터별로 박스 플랏을 시각화하여 비교하세요.
+```{r}
+# V1, V2, cluster로 이루어진 데이터 프레임 생성
+data_boxplt = data.frame(data, cluster = factor(cls$cluster))
+
+V1box = data_boxplt %>% 
+  ggplot(aes(x = cluster, y = V1, 
+             fill = cluster, color = cluster, group = cluster)) +
+  geom_boxplot(alpha = 0.3, outlier.shape = NA) + # 이상치 표시 X
+  stat_boxplot(geom = 'errorbar') + # 에러 바 표시
+  theme_classic() +
+  theme(legend.position = 'None')
+
+V2box = data_boxplt %>% 
+  ggplot(aes(x = cluster, y = V2, 
+             fill = cluster, color = cluster, group = cluster)) +
+  geom_boxplot(alpha = 0.3, outlier.shape = NA) + # 이상치 표시 X
+  stat_boxplot(geom = 'errorbar') + # 에러 바 표시
+  theme_classic() +
+  theme(legend.position = 'None')
+
+grid.arrange(V1box,V2box,ncol=2)
+```
+

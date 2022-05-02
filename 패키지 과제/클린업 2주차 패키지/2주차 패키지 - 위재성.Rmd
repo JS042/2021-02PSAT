@@ -1,0 +1,501 @@
+---
+title: 2주차 패키지
+author: 위재성
+---
+## Chapter 1 모델링을 위한 데이터 전처리
+### 문제0. (기본 세팅) 0번 txt파일을 실행하세요. 
+(패키지 불러오기, 디렉토리 설정)
+```{r message=FALSE, warning=FALSE}
+## 0번
+setwd("C:/Users/위재성/Desktop/Psat/2학기/Package/2주차 패키지") 
+getwd()
+
+need_packages <- c("tidyverse", "ggplot2", "data.table", 'caret','randomForest', "progress", "xgboost", 'dummies','magrittr')
+options(warn = -1)
+for(i in 1:length(need_packages)){
+  if(require(need_packages[i], character.only = T) == 0){
+    install.packages(need_packages[i])
+    require(need_packages[i], character.only = T)
+  }
+  else{require(need_packages[i], character.only = T)}
+}
+rm(list = ls())
+```
+### 문제1. Train데이터를 불러온 뒤 기본 구조를 파악하고 데이터 개수, 변수 개수, 데이터 형식을 확인해보세요.
+```{r warning=FALSE}
+data = fread('data/train.csv')
+data %>% head(3)
+data %>% glimpse()
+data %>% str()
+data %>% summary()
+```
+
+### 문제2. 각 데이터의 컬럼명을 확인해보세요. ‘도보 10분거리 내 지하철역 수(환승노선 수 반영)’ 컬럼이름과 ‘도보 10분거리 내 버스정류장 수’ 컬럼이름이 너무 길기에 각각 ‘지하철개수’, ‘버스개수’로 컬럼명을 바꾸어주세요.
+```{r}
+data %>% names()
+data %<>% 
+  rename('지하철개수' = '도보 10분거리 내 지하철역 수(환승노선 수 반영)',
+         '버스개수' = '도보 10분거리 내 버스정류장 수')
+data %>% names() # 이름 변경 확인
+```
+### 문제3. 각 데이터에 ‘임대료’, ‘임대보증금’이 문자형식으로 되어있습니다. 이유를 찾아 수치형으로 바꾸어 주세요. (HINT : NA 형식 확인)  
+NA형식 확인 결과 빈 문자열과 '-'문자 존재함.
+```{r warning=FALSE}
+# NA개수 확인
+cat(' 임대료:' ,data %>% filter(임대료 %in% c('','-')) %>% nrow(),'\n',
+    '임대보증금:',data %>% filter(임대보증금 %in% c('','-')) %>% nrow())
+
+data[,c('임대료','임대보증금')] %<>% mutate_if(is.character, as.numeric)
+
+data[,c('임대료','임대보증금')] %>% is.na %>% colSums() # 확인결과 일치
+```
+
+### 문제4. 열별로 NA 개수를 확인해보세요. 확인한 후 다음과 같이 시각화해보세요.
+```{r}
+data %>% is.na %>% colSums # NA 개수 확인
+
+# 열별 NA개수 데이터프레임 생성
+na_data = data %>% is.na %>% colSums
+na_data = data.frame(var = names(data), n = as.vector(na_data))
+
+na_data %>% 
+  ggplot(aes(x = n, y = reorder(var,n), fill = n, color = n)) +
+  geom_col(alpha = 0.1) + 
+  geom_text(aes(label = n), position = position_stack(vjust=0.5)) +
+    
+  # 테마 수정
+  theme_light() +
+  labs(title = '컬럼별 NA개수', x = 'NA개수', y = '컬럼명', 
+       fill = 'NA개수', color = 'NA개수') +
+  scale_color_gradient(low = '#81D8D0', high = '#B43C8A') +
+  scale_fill_gradient(low = '#81D8D0', high = '#B43C8A')
+
+```
+
+### 문제5. 데이터에서 범주형 변수를 Factor변수로, 정수형 변수를 수치형(Numeric)으로 바꾸어주세요.
+```{r}
+data %<>% mutate_if(is.character, as.factor)
+data %<>% mutate_if(is.integer, as.numeric)
+data %>% str() # 잘 바뀌었는지 확인
+```
+
+### 문제6. NA값이 있는 행을 확인한 후 NA값을 열 별 평균으로 대체해주세요.
+```{r warning=FALSE}
+data %<>% 
+  lapply(function(x) replace_na(x, mean(x,na.rm=T))) %>% 
+  as.data.frame()
+
+data %>% is.na %>% colSums() # NA값 모두 대체
+```
+
+### 문제7. 공급 유형이 ‘장기전세’인 경우 임대료가 0입니다. 데이터가 잘못되어 있는 경우 확인하고 고쳐주세요.
+```{r}
+data %>% 
+  filter(공급유형 == '장기전세') # 공급유형 장기전세인 경우 확인
+
+# 7개 행 모두 잘못됐으므로 0으로 변경
+data[data['공급유형'] == '장기전세','임대료'] = 0
+
+data %>% 
+  filter(공급유형 == '장기전세') # 확인!
+```
+
+### 문제8. 면적당 임대료 면적당 임대보증금을 계산하여 파생변수를 만들어주세요.
+```{r}
+data %<>% 
+  mutate(면적당임대료 = 임대료 / 전용면적,
+         면적당임대보증금 = 임대보증금 / 전용면적)
+
+data %>% head(3)
+```
+
+### 문제9. 임대료, 임대보증금, 단지코드는 모델링에 사용하지 않을 예정입니다. 삭제해주세요.
+```{r}
+data %<>% select(-c('임대료','임대보증금','단지코드'))
+```
+
+## Chapter 2 랜덤포레스트 및 교차검증
+### 문제1. 데이터를 층화추출을 사용하여 Train셋와 Validation셋을 7:3 비율로 나누어주세요. 
+(Seed : 2728 / p = 0.7 )
+```{r warning=FALSE}
+set.seed(2728)
+# createDataPartiotion에서 자동으로 층화추출
+train_idx = createDataPartition(data$등록차량수, p = 0.7, list=F) 
+train = data[train_idx,]
+valid = data[-train_idx,]
+```
+
+### 문제2. 랜덤포레스트의 하이퍼 파라미터에 대해서 간단히 적어주세요.  
+
+`max_depth`: 트리의 최대 깊이 지정, 깊어질수록 과적할 될 가능성 증가  
+`n_estimators`: 결정트리의 갯수, 커질수록 성능이 좋아지지만 모델링 시간이 오래걸림.  
+`min_samples_split`: 과적합 제어용도, 노드를 분할하기 위한 최소의 샘플 데이터 수  
+  
+    
+    
+### 문제3. 그리드서치를 위해 다음과 같이 데이터 프레임을 만들어 주세요. 
+(For문을통해 모델링을 진행할 과정입니다.) (HINT : expand.grid 함수)
+```{r}
+param = expand.grid(mtry = seq(5,8),
+                    ntree = seq(200,400,by=100),
+                    RMSE = NA)
+
+param
+```
+
+#### 문제4. For문을 활용하여 등록차량수를 예측하는 랜덤포레스트 모델링을 진행한 후
+Validation셋의 RMSE를 계산하여 앞서 만들었던 표에 RMSE값을 넣으세요.
+```{r}
+for (i in seq(1:nrow(param))){
+  ntree = param[i,'ntree']
+  mtry = param[i,'mtry']
+  
+  set.seed(2728)
+  
+  # 랜덤 포레스트 모델링
+  rf = randomForest(등록차량수 ~ ., data = train,
+                    mtry = mtry, ntree = ntree)
+  
+  # 예측값 생성
+  pred = predict(rf,valid)
+  
+  # RMSE계산
+  param[i,"RMSE"] = RMSE(pred,valid$등록차량수)
+    
+}
+```
+### 문제5. (기존 필수/신입선택) 결과를 다음과 같이 시각화 하고, 간단히 해석해보세요.
+```{r}
+param %>% 
+  ggplot(aes(x = mtry, y = ntree, fill = RMSE)) + 
+  geom_tile(color='white') + 
+  
+  # 테마 수정
+  theme_light() +
+  scale_fill_gradient(low = '#D2F7F4', high = '#3CAEA3')
+```
+RMSE값이 mtry, ntree가 커질수록 점차 감소하는 경향이 보임.
+
+### 문제6. RMSE가 가장 낮은 하이퍼 파라미터 조합을 출력하세요.
+```{r}
+param %>% filter(RMSE == min(RMSE))
+```
+
+### 문제7. 5-fold 교차검증을 위해 층화추출을 사용하여 CV인덱스를 만들어주세요.  
+(Seed : 2728)
+```{r}
+set.seed(2728)
+cv_idx = createFolds(data$등록차량수, k=5, list=F)
+```
+### 문제8. 그 리드서치를 위해 다음과 같이 데이터 프레임을 만들어 주세요. 
+(For문을 통해 모델링을 진행할 과정입니다.) (HINT : expand.grid 함수)
+
+```{r}
+param_cv = expand.grid(mtry = seq(5,8),
+                       ntree = seq(200,400,by=100),
+                       RMSE = NA)
+
+param_cv
+```
+
+### 문제9. 이중 For문을 활용하여 등록차량수를 예측하는 랜덤포레스트 모델링을
+진행한 후 Validation셋의 RMSE를 계산하여 앞서 만들었던 표에 RMSE를 넣으세요. 
+(HINT : 첫번째 For문 – 하이퍼 파라미터 변경 / 두번째 For문 – Val셋 변경)
+```{r warning=FALSE}
+rmse = NA # fold별 rmse 저장할 변수 생성
+for (i in seq(1:nrow(param_cv))){
+  # 파라미터 생성
+  ntree = param_cv[i,'ntree']
+  mtry = param_cv[i,'mtry']  
+  
+  for (n in seq(1:5)){
+    # fold에 맞게 train,valid set 생성
+    train = data[cv_idx != n,]
+    valid = data[cv_idx == n,]
+    
+    # 랜덤 포레스트 모델링
+    set.seed(2728)
+    rf = randomForest(등록차량수 ~ ., data = train,
+                      mtry = mtry, ntree = ntree)
+    
+    # 예측값 생성
+    pred = predict(rf,valid)
+    rmse[n] = RMSE(pred,valid$등록차량수)
+    
+  }
+  # fold별 평균 RMSE 계산
+  param_cv[i,"RMSE"] = sum(rmse) / 5
+}
+```
+
+### 문제10. (기존 필수/신입선택) 결과를 다음과 같이 시각화하고, 간단히 해석해보세요.
+```{r}
+param_cv %>% 
+  ggplot(aes(x = mtry, y = ntree, fill = RMSE)) + 
+  geom_tile(color='white') + 
+  
+  # 테마 수정
+  theme_light() +
+  scale_fill_gradient(low = '#D2F7F4', high = '#3CAEA3')
+```  
+
+좀 더 명확하게 mtry가 높을수록 ntree도 높을수록 RMSE가 줄어드는 것 확인.  
+  
+### 문제11. RMSE가 가장 낮은 하이퍼 파라미터 조합을 출력하세요.
+```{r}
+param_cv %>% filter(RMSE == min(RMSE))
+```
+
+### 문제12. 앞에서 Hold-out을 사용하여 튜닝한 결과와 5-fold CV를 사용하여 튜닝한 결과를 다음과 같이 시각화 하고 해석해주세요.
+```{r}
+# 각 결과 데이터에 method변수 생성
+param %<>% mutate(method = 'Hold-out')
+param_cv %<>% mutate(method = '5-fold CV')
+
+rbind(param,param_cv) %>% # rbind통해 결과 데이터 결합
+  ggplot(aes(x=RMSE, y=reorder(paste('param',1:24,by=''),-RMSE), 
+             fill = method, color = method)) +
+  geom_col(alpha=0.1) +
+  geom_text(aes(label=round(RMSE,2)), position = position_stack(vjust=0.5)) +
+  
+  # 테마 수정
+  theme_light() +
+  labs(title = 'Hold-out vs 5 fold CV 비교',
+       y = '파라미터 조합') +
+  scale_fill_manual(values = c('#B43C8A','#6AA2CD')) +
+  scale_color_manual(values = c('#B43C8A','#6AA2CD'))
+```  
+  
+5-fold cv가 Hold-out 방법보다 RMSE가 더 낮게 나옴.  
+
+### 문제13. 랜덤포레스트에서 Importance계산이 어떻게 되는지 간단하게 적어주세요.  
+  
+각 트리의 분기점에서 중요도 계산 후 평균 낸 값이 곧 mean gini decrease.  
+높을수록 불순도가 크게 감소한다는 걸 의미하기 때문에 중요하다라고 해석.
+  
+### 문제14. 가장 좋게 나온 하이퍼 파라미터 조합에 대하여 전체 Train에 대하여 학습 후 Importance Plot을 그린 후 해석해주세요.
+```{r include=FALSE}
+# mtry = 8, ntree = 400
+param_cv %>% filter(RMSE == min(RMSE))
+
+# 전체 데이터 학습
+set.seed(2728)
+rf = randomForest(등록차량수 ~ ., data = data,
+                  mtry = 8, ntree = 400, importance=T)
+
+
+imp = importance(rf) %>% data.frame # importance 구한 후 데이터 프레임화
+imp$var = rownames(imp)
+rownames(imp) = NULL
+
+imp %>% 
+  ggplot(aes(x = IncNodePurity, y = reorder(var, IncNodePurity), 
+             fill = IncNodePurity, color = IncNodePurity)) +
+  geom_col(alpha = 0.5) +
+  
+  # 테마 수정
+  theme_light() +
+  labs(title = 'RandomForest Importance Plot',
+       x = '중요도', y = '변수') +
+  scale_fill_gradient(low = '#81D8D0', high = '#B43C8A') +
+  scale_color_gradient(low = '#81D8D0', high = '#B43C8A')
+```  
+  
+단지내주차면수의 중요도가 가장 높으므로 불순도가 가장 크게 줄어드는 변수라고 해석 가능.   
+
+## Chapter 3. XGBoost
+### 문제1. Xgboost는 numeric 변수만 받으므로 범주형 변수를 encoding을 해야합니다. 범주형 변수들을 One-hot 인코딩해주세요.
+```{r warning=FALSE}
+data_xgb = data %>% dummy.data.frame() # 더미 데이터 생성
+data_xgb %>% str() # 결과 확인
+```
+### 문제2. Xgboost의 하이퍼 파라미터에 대해 간단히 적어주세요.  
+  
+`max_depth` : 트리의 최대 깊이  
+`min_child_weight`: 새 노드를 만들 때 필요한 최소 가중치 지정, 과적합 방지  
+`subsample`: 행 샘플링 비율 지정, 모형에 사용될 임의 표본수 비율로 지정, 과적합 제어  
+`colsample_bytree`: 열 샘플링 비율 지정, 모형에 사용될 변수갯수 비율로 지정, 마찬가지로 과적합 제어  
+`eta`: learning rate 학습률  
+`early_stopping_rounds`: 더 이상 평가 지표가 향상되지 않을 때의 최대 반복 횟수  
+  
+### 문제3. 랜덤튜닝을 활용하여 튜닝을 진행할 예정입니다. 아래의 튜닝데이터 범위를 참고하여 서치할 하이퍼 파라미터를 골라주세요. (Seed : 2728)
+```{r}
+param_xgb = expand.grid(max_depth = seq(4,10),
+                        min_child_weight = seq(4,10),
+                        subsample = seq(0.5,1,by=0.1),
+                        colsample_bytree = seq(0.5,1,by=0.1),
+                        RMSE = NA)
+set.seed(2728)
+param_xgb %<>% sample_n(12) # 12개의 조합 랜덤 샘플링
+```
+
+### 문제4. 이중 For문을 활용하여 등록차량수를 예측하는 Xgboost 회귀모델링을 진행한 후 Validation의 RMSE를 계산해주세요. 
+(HINT : 첫번째 For문 – 파라미터 변경 / 두번째 For문 – Val셋 변경)
+```{r}
+rmse = NA # fold별 RMSE값 저장할 변수 생성
+for (i in seq(1:nrow(param_xgb))){
+  # 파라미터 값 생성
+  max_depth = param_xgb[i,'max_depth']
+  min_child_weight = param_xgb[i,'min_child_weight']  
+  subsample = param_xgb[i,'subsample'] 
+  colsample_bytree = param_xgb[i,'colsample_bytree'] 
+  
+  param_list = list(max_depth = max_depth, min_child_weight = min_child_weight,
+                    subsample = subsample, colsample_bytree = colsample_bytree)
+  
+  for (n in seq(1:5)){
+    # fold별 train,valid set 생성
+    train = data_xgb[cv_idx != n,]
+    valid = data_xgb[cv_idx == n,]
+    
+    set.seed(2728)
+    # XGBoost에 사용할 데이터 생성
+    dtrain = xgb.DMatrix(data = train %>% select(-등록차량수) %>% as.matrix, 
+                         label = train$등록차량수)
+    dvalid = xgb.DMatrix(data = valid %>% select(-등록차량수) %>% as.matrix, 
+                         label = valid$등록차량수)
+    
+    # 모델링~
+    xgb = xgboost(dtrain, param = param_list,
+                  eta = 0.01, nrounds = 1000, 
+                  early_stopping_rounds = 0.05*1000, verbose = 0)
+    
+    # 예측값 생성
+    pred = predict(xgb,dvalid)
+    rmse[n] = RMSE(pred,valid$등록차량수)
+    
+  }
+  # fold별 평균 RMSE계산
+  param_xgb[i,"RMSE"] = sum(rmse) / 5
+}
+```
+
+### 문제5. 결과를 다음과 같이 시각화하고 가장 좋은 하이퍼 파라미터 조합을 보여주세요. 그리드서치와 랜덤서치의 개념, 그리고 랜덤 서치가 가지는 장점과 단점을 설명해주세요.
+```{r}
+param_xgb %>% 
+  ggplot(aes(x=RMSE, y=reorder(paste('param',1:12,by=''),-RMSE), 
+                               color = RMSE, fill = RMSE)) +
+  geom_col(alpha = 0.5) +
+  geom_text(aes(label = round(RMSE,2)), position = position_stack(vjust=0.5)) +
+  
+  # 테마 수정
+  theme_light() +
+  labs(title = 'XGboost 결과', y = '파라미터 조합') +
+  scale_fill_gradient(low = '#81D8D0', high = '#B43C8A') +
+  scale_color_gradient(low = '#81D8D0', high = '#B43C8A')  
+```
+```{r}
+param_xgb %>% filter(RMSE == min(RMSE))
+```  
+
+
+  
+`grid search`: 하이퍼 파라미터 값들을 사전에 지정, 지정한 값들의 조합으로만 최적의 조합 탐색.   
+`random search`: 하이퍼 파라미터 값들의 범위 지정, 범위 속에서 지정한 횟수만큼 최적의 조합 탐색.  
+`장점`: `grid search`에 비해 탐색 시간이 짧음.  
+`단점`: 랜덤하게 검색하다보니 최적의 값이 아닐 수 있음. 
+  
+## Chapter 4 비교
+### 문제 1. Test셋을 불러와 Train셋과 똑같이 전처리 해주세요.
+```{r warning=FALSE}
+rm(list = ls()) # R과부화로 인해 기존 데이터 삭제
+
+# train 데이터 전처리
+train = fread('data/train.csv')
+train %<>% 
+  rename('지하철개수' = '도보 10분거리 내 지하철역 수(환승노선 수 반영)',
+         '버스개수' = '도보 10분거리 내 버스정류장 수')
+train[,c('임대료','임대보증금')] %<>% mutate_if(is.character, as.numeric)
+
+train %<>% mutate_if(is.character, as.factor)
+train %<>% mutate_if(is.integer, as.numeric)
+
+train %<>% 
+  lapply(function(x) replace_na(x, mean(x,na.rm=T))) %>% 
+  as.data.frame()
+
+train[train['공급유형'] == '장기전세','임대료'] = 0
+
+train %<>% 
+  mutate(면적당임대료 = 임대료 / 전용면적,
+         면적당임대보증금 = 임대보증금 / 전용면적)
+
+train %<>% select(-c('임대료','임대보증금','단지코드'))
+train %>% head(3) # 전처리 결과 확인
+train %>% is.na %>% colSums # NA값 확인
+```
+
+```{r warning=FALSE}
+# test 데이터 전처리
+test = fread('data/test.csv')
+test %<>% 
+  rename('지하철개수' = '도보 10분거리 내 지하철역 수(환승노선 수 반영)',
+         '버스개수' = '도보 10분거리 내 버스정류장 수')
+test[,c('임대료','임대보증금')] %<>% mutate_if(is.character, as.numeric)
+
+test %<>% mutate_if(is.character, as.factor)
+test %<>% mutate_if(is.integer, as.numeric)
+
+test %<>% 
+  lapply(function(x) replace_na(x, mean(x,na.rm=T))) %>% 
+  as.data.frame()
+
+test[test['공급유형'] == '장기전세','임대료'] = 0
+
+test %<>% 
+  mutate(면적당임대료 = 임대료 / 전용면적,
+         면적당임대보증금 = 임대보증금 / 전용면적)
+
+test %<>% select(-c('임대료','임대보증금','단지코드'))
+test %>% head(3) # 전처리 결과 확인
+test %>% is.na %>% colSums # NA값 확인
+```  
+### 문제2. RandomForest에서 가장 잘 나온 하이퍼 파라미터 조합을 사용하여 전체 Train셋을 학습시킨 후 Test셋에 대한 RMSE를 계산하세요.
+```{r}
+set.seed(2728)
+rf = randomForest(등록차량수 ~ ., data = train,
+                  mtry = 8, ntree = 400, importance=F)
+pred = predict(rf,test)
+rmse_RF = RMSE(pred,test$등록차량수)
+rmse_RF
+```
+
+### 문제3. Xgboost에서 가장 잘 나온 하이퍼 파라미터 조합을 사용하여 전체 Train셋을 학습시킨 후 Test셋에 대한 RMSE를 계산하세요.
+```{r warning=FALSE}
+test_xgb = test %>% dummy.data.frame()
+train_xgb = train %>% dummy.data.frame()
+
+param_list = list(max_depth = 8, min_child_weight = 4,
+                    subsample = 0.9, colsample_bytree = 0.6)
+
+set.seed(2728)
+dtrain = xgb.DMatrix(data = train_xgb[,-51] %>% as.matrix, 
+                     label = train_xgb[,51])
+dtest = xgb.DMatrix(data = test_xgb[,-51] %>% as.matrix, 
+                     label = test_xgb[,51])
+
+xgb = xgboost(dtrain, param = param_list,
+              eta = 0.01, nrounds = 1000, 
+              early_stopping_rounds = 0.05*1000, verbose = 1)
+
+pred = predict(xgb,dtest)
+rmse_XGB = RMSE(pred,test$등록차량수)
+rmse_XGB
+```  
+  
+### 문제4. 2개의 모델링 결과를 다음과 같이 시각화한 후 해석해보세요.
+```{r}
+result = data.frame(model = c('RandomForest','XGBoost'),
+                    RMSE = c(rmse_RF,rmse_XGB))
+
+result %>% 
+  ggplot(aes(x = RMSE, y = model, color = model, fill = model)) +
+  geom_col(alpha = 0.4) + 
+  geom_text(aes(label = round(RMSE,4)), position = position_stack(vjust = 0.5)) +
+  theme_light() +
+  labs(title = '모델 결과 비교', y = '모델') +
+  scale_fill_manual(values = c('#6AA2CD','#B43C8A')) +
+  scale_color_manual(values = c('#6AA2CD','#B43C8A'))
+```
+  
+하이퍼파라미터 튜닝 결과 RMSE를 기준으로 `RandomForest`모델의 성능이 더 높게 나온 것 확인.

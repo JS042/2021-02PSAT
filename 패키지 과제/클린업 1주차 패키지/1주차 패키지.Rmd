@@ -1,0 +1,373 @@
+---
+title: '클린업 1주차 패키지'
+author: '2017314423 위재성'
+---
+
+## Chapter 1 전처리
+
+#### 문제0. (기본 세팅) 0번 txt파일을 실행하세요. 
+(패키지 불러오기, 디렉토리 설정 및 데이터 불러오기)
+
+```{r message=FALSE, warning=FALSE}
+## 디렉토리 설정 
+setwd("C:/Users/위재성/Desktop/Psat/2학기/Package/클린업 1주차 패키지")  ## 본인의 디렉토리로 변경하세요.
+
+# 패키지 불러오기 -- 아래의 패키지 이외에는 부르지 말아주세요! 
+library(tidyverse)
+library(magrittr)
+library(data.table)
+library(ggpubr)
+library(corrplot)
+library(caret)
+library(Metrics)
+
+# 데이터 불러오기 
+cus_info <- fread("cus_info.csv",
+                  header=TRUE, 
+                  data.table = FALSE,
+                  stringsAsFactors = FALSE,
+                  na.strings = c("_", "-"))
+
+act_info <- fread("act_info.csv",
+                  header=TRUE,
+                  data.table = FALSE,
+                  stringsAsFactors = FALSE)
+```
+
+#### 문제1. 데이터의 기본 구조를 파악하고 데이터 개수, 변수 개수, 데이터 형식을 확인해보세요. 
+(head, tail, str, glimpse, summary 등 다양하게 사용해보세요)
+```{r}
+#act_info
+act_info %>% head(3)
+act_info %>% tail(3)
+act_info %>% summary()
+act_info %>% glimpse()
+act_info %>% str()
+
+```
+```{r}
+#cus_info
+cus_info %>% head(3)
+cus_info %>% tail(3)
+cus_info %>% summary()
+cus_info %>% glimpse()
+cus_info %>% str()
+```
+
+#### 문제2. 각 열별로 결측치(NA)의 개수를 확인한 후 결측치가 40% 이상인 열을 삭제하세요.
+(colSums 사용 시 편리)
+```{r}
+act_info %>% is.na %>% colSums
+cus_info %>% is.na %>% colSums
+```
+```{r}
+nrow(cus_info) * 0.4
+```
+ivs_icn_cd열의 결측치가 4000개 넘으므로 삭제
+
+```{r}
+cus_info %<>% select(-ivs_icn_cd)
+```
+  
+
+#### 문제3. 각 열마다 unique한 값의 개수를 확인하세요. 
+(apply, n_distinct 사용 시 편리)
+```{r}
+act_info %>% apply(2, n_distinct)
+cus_info %>% apply(2, n_distinct)
+```
+
+#### 문제4. act_info에서 계좌개설일(act_opn_ym)의 unique 값을 확인 후 이상치값을 갖는 행 을 삭제하세요.
+```{r}
+act_info[,'act_opn_ym'] %>% unique() 
+
+# 이상치인 0값 제거 후 분포 재확인
+act_info %<>% filter(act_opn_ym != 0)
+act_info[, 'act_opn_ym'] %>% summary()
+```
+
+
+#### 문제5. act_info에서 계좌개설일(act_opn_ym) 변수를 각각 년(act_opn_yy) 변수와 월(act_opn_mm) 변수로 나눈 뒤 수치형 변수로 변환 하세요. 
+(separate 사용 시 편리)
+
+```{r}
+act_info %<>% separate(act_opn_ym, into = c('act_opn_yy','act_opn_mm'), sep=4)
+act_info[, c('act_opn_yy')] %<>% as.numeric()
+act_info[, c('act_opn_mm')] %<>% as.numeric()
+
+act_info %>% head(3) # 년, 월 변수 잘 나뉘어진 것 확인
+act_info %>% str() # 수치형 변수로 변환 확인
+```
+#### 문제6. cus_info에서 범주형 변수인데 수치형으로 읽힌 경우 mutate_if를 통해 범주형 변수로 변경 하세요.
+```{r}
+cus_info %>% str()
+# 나이 제외 모두 범주형 변수이므로 변경
+cus_info[,-3] %<>% mutate_if(is.integer, as.factor)
+cus_info %>% str() # 범주형으로 변경 확인
+```
+
+#### 문제7. cus_info에서 연령대(cus_age) 변수를 10세 기준으로 재범주화 하세요.
+(데이터 명세 참고)
+```{r}
+cus_info[,'cus_age'] %>% summary
+#0-70까지 분포
+cus_info[,"cus_age"] %<>% cut(breaks= c(10*(0:8)),
+                              labels = c('10s','10s','20s','30s','40s','50s','60s','70s'),
+                              right = FALSE) #  (0,10] -> [0,10)
+cus_info[,'cus_age'] %>% summary #재범주화 확인
+```
+
+#### 문제8. 데이터 레이블 변경하기
+```{r}
+# 성별 레이블 변경
+cus_info[, 'sex_dit_cd'] = ifelse(cus_info[, "sex_dit_cd"] == 1, 'M', 'F')
+# 지역 레이블 변경
+cus_info %<>% 
+  mutate(zip_ctp_cd = case_when(zip_ctp_cd == 41 ~ '경기',
+                               zip_ctp_cd == 11 ~ '서울',
+                               zip_ctp_cd == 48 ~ '경남',
+                               zip_ctp_cd == 26 ~ '부산',
+                               zip_ctp_cd == 27 ~ '대구',
+                               zip_ctp_cd == 47 ~ '경북',
+                               zip_ctp_cd == 28 ~ '인천',
+                               zip_ctp_cd == 44 ~ '충남',
+                               zip_ctp_cd == 46 ~ '전남',
+                               zip_ctp_cd == 30 ~ '대전',
+                               zip_ctp_cd == 29 ~ '광주',
+                               zip_ctp_cd == 43 ~ '충북',
+                               zip_ctp_cd == 45 ~ '전북',
+                               zip_ctp_cd == 42 ~ '강원',
+                               zip_ctp_cd == 31 ~ '울산',
+                               zip_ctp_cd == 50 ~ '제주',
+                               zip_ctp_cd == 36 ~ '세종'
+                               ))
+cus_info[,'zip_ctp_cd'] %>% unique() # NA 제외 총 17개 지역 잘 나옴.
+```
+#### 문제9. cus_id를 제외한 모든 변수들을 factor 형태로 변경 한 후 자료형태를 다시 확인해보세요.
+
+```{r}
+cus_info[,-1] %<>% mutate_if(is.character, as.factor) # 레이블 변경으로 인한 문자형 변수 변환
+cus_info %>% str()
+```
+
+#### 문제10. 문제 4번의 결과를 바탕으로 두 데이터셋을 병합한 뒤 data로 저장하고 이전 데이터셋은 삭제하세요.
+```{r}
+data = merge(cus_info,act_info,by='cus_id') # 고객 번호 기준으로 병합
+rm(list = c('act_info','cus_info'))
+```
+
+#### 문제11. 연령대별(cus_age)로 그룹화하여 고객 수(cus_cnt), 계좌 수(act_cnt), 그리고 1인당 평균 계좌 개수(mean_act_cnt) 파생변수를 만드세요. 이후의 시각화에 사용하기 위해 account__cnt로 저장하세요.
+```{r}
+account__cnt = data %>%
+  group_by(cus_age) %>% # 연령대별 그룹화
+  summarise(cus_cnt = length(unique(cus_id)), # 고객 번호 개수
+            act_cnt = length(unique(act_id)), # 계좌 번호 개수
+            mean_act_cnt = act_cnt / cus_cnt)
+```
+
+## Chapter 2 시각화
+
+### 문제1. Bar Graph
+#### 1-1. data의 각 변수별 결측치 개수와 비율을 다음과 같이 시각화해서 보여주세요.
+```{r}
+# 변수별 결측치 개수와 비율 데이터프레임
+na_data = data.frame(var = data %>% colnames(),
+                     na = data %>% is.na %>% colSums,
+                     prop = data %>% is.na %>% colSums / nrow(data),
+                     row.names = NULL)
+
+na_data %>% 
+  ggplot(aes(x=reorder(var,-na), y=na)) + # reorder 이용 크기 순 정렬
+  geom_col(alpha=0.7,fill=c(rep('skyblue', 4), rep('blue', 4))) + # 색깔 및 투명도 지정
+  geom_text(aes(label=paste(round(prop * 100,2),'%', sep="")),  
+            position = position_stack(vjust=.5)) +   # 막대 정가운데 비율 나오도록 표시
+# 제목, 테마, 축 수정    
+  theme_bw() +
+  labs(title = '변수별 결측치 개수 및 비율',
+       x = '변수', y = '결측치 개수') + 
+  theme(plot.title = element_text(size = 20, face = 'bold'))
+  
+```
+
+#### 1-2. data에서 연령대별 2020년 신규 개설 계좌 비율을 다음과 같이 시각화해서 보여주세요.
+```{r}
+
+data %>%
+  # 신규계좌 개설 여부 파생변수 생성
+  mutate(new_acc = ifelse(act_opn_yy == 2020, '2020년 개설', '2020년 이전 개설')) %>%   
+  # ggplot 시작
+  ggplot(aes(x=cus_age, fill = factor(new_acc, # factor 순서 변경
+                                      levels = c('2020년 이전 개설', '2020년 개설')))) + 
+  geom_bar(position = 'fill') +
+  
+  # 제목, 테마, 축 수정  
+  labs(title = '연령대별 2020년 신규개설 계좌 비율',
+       x = '연령대', y = '', fill = "") +
+  theme(plot.title = element_text(size = 20, face = 'bold'),
+        legend.position = 'bottom') +
+  scale_fill_brewer(palette = 'RdPu') # palette 지정
+```
+
+### 문제2. Line Graph (Time Series Graph)
+```{r message=FALSE, warning=FALSE}
+line1 = data %>% 
+  group_by(act_opn_yy, cus_age) %>% 
+  summarise(count = length(act_id)) %>% # 연도별 신규계좌 수 생성
+  
+  # ggplot 시작
+  ggplot(aes(x = act_opn_yy, y = count, color = cus_age)) + # 나이별로 그룹화
+  geom_line() + geom_point() + 
+  
+  # 제목, 테마, 축 수정
+  theme_bw() +
+  labs(title = '연도별 신규계좌 수',
+       subtitle = '연도별로 새롭게 개설된 신규 계좌 수를 연령대별로 표현한 그래프',
+       x = '연도', y = '신규계좌 수', color = '연령대') +
+  theme(plot.title = element_text(size = 20, face = 'bold'),
+        plot.subtitle = element_text(size = 15, face = 'italic')) +
+  scale_x_continuous(breaks = seq(1975,2020,by=5)) # 5년마다 나오도록 x축 조정
+
+ord = paste(1:12,'월',sep='') # 월별 순서 변수 생성
+line2 = data %>% 
+  filter(act_opn_yy == 2020) %>% # 2020년도 계좌만 필터링
+  group_by(act_opn_mm, cus_age, sex_dit_cd) %>% 
+  summarise(count = length(act_id)) %>%  # 월별 신규 계좌 수 생성
+  
+  # ggplot 시작
+  ggplot(aes(x = factor(paste(act_opn_mm,'월',sep=""), levels = ord), # 월별로 순서 정렬
+             y = count, group = cus_age, color = cus_age)) +
+  geom_line() + geom_point() + 
+  facet_wrap(~ sex_dit_cd) + # 성별로 그룹화
+  
+  # 제목, 테마, 축 수정  
+  labs(title = '2020년 월별 신규 계좌 수',
+       subtitle = '고객 성별 연령별 2020년 월별 신규개설 계좌 수 추이',
+       x = '', y = '개설된 계좌 수', color = '연령대') +
+  theme(plot.title = element_text(size = 20, face = 'bold'),
+        plot.subtitle = element_text(size = 15, face = 'italic'),
+        strip.background = element_rect(fill = 'white', color = 'grey'))
+  
+
+ggarrange(line1, line2, nrow=2, common.legend = TRUE, legend = 'right') # 공통 범례 사용
+```
+  
+### 문제 3. Bar Graph + Line Graph
+Chapter1 문제 11번에서 생성한 account_cnt를 사용하여 다음과 같이 연령대별 고객 분포를 bar graph로 표현하고, 인당 평균 계좌 개수를 line graph로 표현하여 시각화해주세요.
+```{r}
+account__cnt %>% 
+  ggplot(aes(x = cus_age)) +
+  geom_col(aes(y = cus_cnt, fill = cus_age, color = cus_age), alpha = 0.4) +
+  geom_line(aes(y = mean_act_cnt*300, group=1),linetype = 'dashed') + 
+  geom_point(aes(y = mean_act_cnt*300, fill = cus_age), shape = 22, size = 3) +
+  geom_text(aes(y = mean_act_cnt*300, 
+                label = paste(round(mean_act_cnt,2),'개',sep='')), vjust = -1) +
+  
+  # 제목, 테마, 축 수정  
+  theme_bw() +
+  labs(title = '연령대별 고객 분포와 평균 계좌 개수',
+       subtitle = '연령대별 계좌 개수를 고객 수로 나누어 1인당 평균 계좌 개수를 구하여 연령대별 고객 분포와 함께 표현했습니다.',
+       x = '연령대', y = '고객 수') +
+  theme(plot.title = element_text(size = 20, face = 'bold'),
+        plot.subtitle = element_text(size = 15, face = 'italic'),
+        legend.position = 'None')  
+```
+  
+y축인 고객수의 최대값은 2000이 넘어감.    
+반면에 평균계좌 개수의 최대값은 5가 넘지 않고 범위가 훨씬 좁음.    
+따라서 300을 곱해 값을 조정, 그래프상에 잘 표현되도록 함.  
+
+### 문제 4. Scatter Plot & Box Plot
+환경에 저장된 데이터를 모두 삭제하고 carData 패키지의 Salaries 데이터셋을 불러주세요.
+[rm(list=ls()) ; data(Salaries, package=”carData”) 코드 사용]
+```{r}
+rm(list=ls())
+data(Salaries, package='carData')
+```
+
+#### 4-1. Salaries 데이터셋으로 다음과 같은 scatter plot을 시각화해주세요.
+```{r}
+Salaries %>% 
+  ggplot(aes(x = yrs.since.phd, y = salary, 
+             group = discipline, color = discipline)) +
+  geom_point(aes(shape = discipline)) + # 점들의 모양 지정
+  geom_smooth(method = 'lm', se = FALSE) + # 선형 회귀선으로 변형, 신뢰구간 표시 X
+  theme_minimal()
+
+```
+  
+
+#### 4-2[심화_기존은 필수, 신입은 선택] Salaries 데이터셋으로 다음과 같은 box plot을 시각화해주세요.
+```{r}
+Salaries %>% 
+  ggplot(aes(x = salary, y = rank, color = rank)) +
+  geom_boxplot(lwd = 1, outlier.size = 3, outlier.shape = 1) + # 예시와 같이 outlier 맞춰주고 박스 넓이 증가시킴
+  geom_jitter(alpha = 0.5, height=0.2) + # jitter통해 가독성 확보, 높이 맞춰줌
+  theme_minimal() +
+  theme(legend.position = 'None') # 범례 삭제
+```
+  
+## Chapter3 회귀분석  
+#### 문제1. Salaries 데이터셋의 수치형 변수만을 선택하여 상관계수 플랏을 그리고 간단히 해석해보세요.
+```{r}
+Salaries %>% 
+  select(yrs.since.phd, yrs.service, salary) %>% # 수치형 변수들 선택
+  cor %>% corrplot(method = 'color', tl.pos = 'd', tl.col = 'black', # text label의 위치와 색깔 변경
+                   addCoef.col = 1, diag = F) # 상관계수 표시, 대각선은 제외
+```
+  
+`yrs.since.phd`변수와 `yrs.service`변수간의 상관계수가 0.91로 강한 양의 상관관계를 보여줌.  
+박사학위를 딴 시점과 일을 하기 시작한 시점이 비슷해서 그렇지 않을까 추정.  
+
+#### 문제2. [심화_기존은 필수, 신입은 선택] Salaries 데이터셋에서 성별에 따른 salary의 평균이 유의미하게 다른지 통계적으로 검증하고 싶습니다. 어떤 검정 방법을 사용할지 선택하 고, 검정을 진행한 뒤 그 결과를 해석해주세요.  
+```{r}
+# 성별에 따른 salary 데이터 만들어줌
+data = Salaries %>% group_by(sex) %>% summarise(salary)
+Female_salary = data[data$sex == 'Female',2]
+Male_salary = data[data$sex == 'Male',2]
+
+# 양측검정 사용
+t.test(Female_salary, Male_salary, alt='two.sided')
+```
+  
+p-value가 0.002664로 유의수준 5%에서 유의한 결과 획득.    
+즉, `성별에 따른 salary의 평균이 유의미하게 다르다.`라고 할 수 있음.
+  
+#### 문제3. 데이터를 7:3비율로 train/test를 분리하세요. 
+(2728 시드 고정 필수, p=0.7으 로 사용)
+```{r}
+set.seed(2728) # 시드 고정
+train_idx = createDataPartition(Salaries$salary, p=0.7, list=F) # 7:3으로 인덱스 분리
+
+# 데이터 생성
+train = Salaries[train_idx,]
+test = Salaries[-train_idx,]
+```
+
+#### 문제4. train 데이터를 이용하여 salary를 종속변수, 나머지 변수들을 독립변수로 하는 회귀 모형을 만든 뒤 결과를 간단히 해석해주세요. 
+(범주형 독립변수들은 어떻게 해석할 수 있는지도 설명해주세요.)
+```{r}
+fit = lm(salary~., data = train)
+fit %>% summary
+```
+  
+F-검정통계량의  p-value가 유의하므로 `모든 회귀계수가 0이다`라는 귀무가설 기각.  
+`rank`: 부교수와 정교수 모두 조교수보다 평균 수입이 더 높음.   
+`discipline`: B인 경우가 A인 경우보다 평균 수입이 더 높음.  
+나머지 변수는 salary에 유의한 영향 X  
+
+#### 문제5. 회귀모형의 성능을 평가할 수 있는 지표가 무엇인지 설명하고, 모델의 train error와 test error를 계산한 뒤 비교해주세요.  
+회귀모형의 성능 지표로 대표적인 `RMSE`를 사용  
+루트를 사용해 제곱으로 생기는 왜곡 해소하는 장점 있음.
+```{r}
+# train error
+pred_train = predict(fit,train)
+train_error = rmse(train$salary,pred_train)
+
+# test error
+pred_test = predict(fit,test)
+test_error = rmse(test$salary,pred_test)
+
+cat('train error: ',  train_error,'\n', 'test error: ', test_error)
+```
+    
+`train error`가 `test error`에 비해 약 3400정도 더 낮음.
